@@ -1,0 +1,21 @@
+services:
+  isummarize:
+    restart: always
+    image: isummarize-worker:cpu
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    env_file:
+      - .env
+    environment:
+      HOST: "0.0.0.0"
+      DATA_DIR: /data
+      SQLITE_PATH: /data/tasks.db
+      LOG_DIR: /data/logs
+      PERFORMANCE_LOG: /data/logs/performance_log.csv
+    user: "1001:1001"
+    volumes:
+      - ./data:/data
+    command: ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 1"]
