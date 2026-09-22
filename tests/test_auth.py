@@ -35,7 +35,10 @@ def test_health_without_token(client: TestClient) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["version"] == read_version()
+    assert body["model"] == "stub-model"
     assert body["llm"] in {"ready", "unconfigured", "unavailable"}
+    workers = body["workers"]
+    assert workers == {"max": 1, "active": 0, "available": 1}
 
 
 def test_ready_without_token(client: TestClient) -> None:
@@ -44,7 +47,9 @@ def test_ready_without_token(client: TestClient) -> None:
     body = response.json()
     assert body["status"] == "ok"
     assert body["version"] == read_version()
+    assert body["model"] == "stub-model"
     assert body["llm"] == "ready"
+    assert body["workers"] == {"max": 1, "active": 0, "available": 1}
 
 
 def test_ready_unavailable_is_503(client: TestClient) -> None:

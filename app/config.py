@@ -2,7 +2,7 @@
 
 from functools import lru_cache
 
-from pydantic import field_validator
+from pydantic import AliasChoices, Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -32,7 +32,7 @@ class Settings(BaseSettings):
     PERFORMANCE_LOG_ENABLED: bool = True
     METRICS_ENABLED: bool = True
 
-    WORKERS: int = 1
+    WORKERS: int = Field(default=1, validation_alias=AliasChoices("WORKERS", "WORKERS_MAX"))
     WORKER_QUEUE_SIZE: int = 4
     MAX_PAYLOAD_BYTES: int = 10 * 1024 * 1024
     TASK_TTL_SEC: int = 3600

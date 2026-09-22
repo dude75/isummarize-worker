@@ -9,7 +9,7 @@ from pathlib import Path
 from app.config import Settings, get_settings
 from app.pipeline import run_pipeline
 from app.prometheus_metrics import observe_restore, observe_submitted
-from app.schemas import ErrorCode, ErrorDetail, PurgeResult, TaskStatus
+from app.schemas import ErrorCode, ErrorDetail, PurgeResult, TaskStatus, WorkersHealth
 from app.storage import (
     cleanup_legacy_cwd_tmp,
     cleanup_tmp,
@@ -41,6 +41,12 @@ class TaskRunner:
         self._tasks: set[asyncio.Task[None]] = set()
         self._dispatcher: asyncio.Task[None] | None = None
         self._ttl_task: asyncio.Task[None] | None = None
+
+    def worker_snapshot(self) -> WorkersHealth:
+        max_workers = self.settings.WORKERS
+        available = self._free_slots.qsize()
+        active = max_workers - available
+        return WorkersHealth(max=max_workers, active=active, available=available)
 
     async def start(self) -> None:
         Path(self.settings.LOG_DIR).mkdir(parents=True, exist_ok=True)

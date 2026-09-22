@@ -35,6 +35,7 @@ from app.schemas import (
     ErrorDetail,
     HealthResponse,
     LlmHealth,
+    WorkersHealth,
     PurgeResult,
     TaskListItem,
     TaskMeta,
@@ -374,16 +375,27 @@ def swagger_docs() -> HTMLResponse:
     return HTMLResponse(html)
 
 
-async def _health_body() -> HealthResponse:
+async def _health_body(runner: TaskRunner | None = None) -> HealthResponse:
     settings = get_settings()
     llm_status = await probe_llm(settings)
     set_llm_status(llm_status)
-    return HealthResponse(status="ok", version=read_version(), llm=llm_status)
+    workers = (
+        runner.worker_snapshot()
+        if runner is not None
+        else WorkersHealth(max=settings.WORKERS, active=0, available=settings.WORKERS)
+    )
+    return HealthResponse(
+        status="ok",
+        version=read_version(),
+        model=settings.MODEL,
+        llm=llm_status,
+        workers=workers,
+    )
 
 
 @app.get("/health", response_model=HealthResponse)
-async def health() -> HealthResponse:
-    return await _health_body()
+async def health(runner: TaskRunner = Depends(get_runner)) -> HealthResponse:
+    return await _health_body(runner)
 
 
 @app.get(
@@ -391,8 +403,8 @@ async def health() -> HealthResponse:
     response_model=HealthResponse,
     responses={503: {"model": HealthResponse}},
 )
-async def ready() -> HealthResponse | JSONResponse:
-    body = await _health_body()
+async def ready(runner: TaskRunner = Depends(get_runner)) -> HealthResponse | JSONResponse:
+    body = await _health_body(runner)
     if body.llm is LlmHealth.ready:
         return body
     return JSONResponse(

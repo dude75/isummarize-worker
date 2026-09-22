@@ -76,10 +76,18 @@ class TaskListItem(BaseModel):
     skill_chars: int | None = None
 
 
+class WorkersHealth(BaseModel):
+    max: int
+    active: int
+    available: int
+
+
 class HealthResponse(BaseModel):
     status: str = "ok"
     version: str
+    model: str
     llm: LlmHealth
+    workers: WorkersHealth
 
 
 class PurgeResult(BaseModel):
