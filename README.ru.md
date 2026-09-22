@@ -66,6 +66,7 @@ Docker: [Docker Compose](#docker-compose).
 | `PERFORMANCE_LOG_ENABLED` | Строка CSV + JSON `metric_event` в stdout при завершении задачи. По умолчанию `true`.                                                     |
 | `METRICS_ENABLED`         | Прикладные метрики Prometheus на `GET /metrics`. По умолчанию `true`. `false` / `0` / `no` — только process collectors.                    |
 | `WORKERS`                 | Сколько **задач** могут выполняться одновременно в этом процессе. По умолчанию `1`. Не uvicorn workers. Обязательная явная настройка.     |
+| `WORKERS_MAX`             | Синоним `WORKERS` (то же значение). В `GET /health` → `workers.max` для Capacity UI [idigest-hub](https://github.com/dude75/idigest-hub). |
 | `WORKER_QUEUE_SIZE`       | Максимум задач в `queued`. По умолчанию `4`. Сверх лимита: `503` `queue_full`.                                                             |
 | `MAX_PAYLOAD_BYTES`       | Максимум JSON-тела `POST /summarize` в байтах. По умолчанию `10485760` (10 МиБ). Сверх лимита: HTTP **413** `payload_too_large`.           |
 | `TASK_TTL_SEC`            | Секунд после `success`/`error` до удаления строки SQLite. `0` — без TTL.                                                                  |
@@ -102,9 +103,32 @@ Docker: [Docker Compose](#docker-compose).
 
 ```bash
 curl -s "$HOST/health"
+curl -s "$HOST/health" | jq '{version, model, llm, workers}'
 ```
 
-В JSON: `version` (как в `version.txt`) и `llm`: `ready` | `unconfigured` | `unavailable`. Секреты не светятся. `unconfigured` — пустые `BASE_URL`, `API_KEY` или `MODEL`. HTTP **200**, пока процесс жив (liveness), даже если провайдер лежит. `ready` — `GET {BASE_URL}/models` ответил 2xx; 401/403/429/5xx и сеть — `unavailable`. Результат пробы кэшируется на `LLM_PROBE_TTL_SEC`.
+В JSON: `version` (как в `version.txt`), `model` (из `MODEL` в `.env`), `llm`: `ready` | `unconfigured` | `unavailable`, и блок `workers`:
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.1",
+  "model": "gpt-4o-mini",
+  "llm": "ready",
+  "workers": {
+    "max": 2,
+    "active": 0,
+    "available": 2
+  }
+}
+```
+
+| Поле | Смысл |
+| ---- | ----- |
+| `workers.max` | Параллельных слотов саммаризации на этом процессе (`WORKERS` / `WORKERS_MAX`). |
+| `workers.active` | Задач, занимающих слот (`running`). |
+| `workers.available` | Свободных слотов: `max - active`. |
+
+[idigest-hub](https://github.com/dude75/idigest-hub) читает `workers.*` для Capacity summarize-нод (вместо legacy fallback 1/1). Секреты не светятся. `unconfigured` — пустые `BASE_URL`, `API_KEY` или `MODEL`. HTTP **200**, пока процесс жив (liveness), даже если провайдер лежит. `ready` — `GET {BASE_URL}/models` ответил 2xx; 401/403/429/5xx и сеть — `unavailable`. Результат пробы кэшируется на `LLM_PROBE_TTL_SEC`.
 
 ### Ready (без токена)
 
@@ -112,7 +136,7 @@ curl -s "$HOST/health"
 curl -s "$HOST/ready"
 ```
 
-Тот же JSON, что у `/health`. HTTP **200** только если `llm` = `ready`, иначе **503**. Сюда смотрит балансер / k8s readiness.
+Тот же JSON, что у `/health` (включая `model` и `workers`). HTTP **200** только если `llm` = `ready`, иначе **503**. Сюда смотрит балансер / k8s readiness. [idigest-hub](https://github.com/dude75/idigest-hub) для dispatch summarize смотрит `/ready`; `workers` — только для Capacity в UI.
 
 ### Метрики
 

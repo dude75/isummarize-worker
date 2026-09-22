@@ -66,6 +66,7 @@ Copy names into `.env`. **Do not put real tokens in git or in this README.** Cha
 | `PERFORMANCE_LOG_ENABLED` | CSV row + JSON `metric_event` on stdout when a task finishes. Default `true`. `false` / `0` / `no` = off.                                                        |
 | `METRICS_ENABLED`         | Application Prometheus metrics on `GET /metrics`. Default `true`. `false` / `0` / `no` = process collectors only; the endpoint stays up.                         |
 | `WORKERS`                 | How many **tasks** may run at once in this process. Default `1`. Not uvicorn workers. Required, explicit.                                                        |
+| `WORKERS_MAX`             | Alias for `WORKERS` (same value). Exposed as `workers.max` in `GET /health` for [idigest-hub](https://github.com/dude75/idigest-hub) Capacity UI.                 |
 | `WORKER_QUEUE_SIZE`       | Max `queued` tasks waiting for a slot. Default `4`. Beyond that: `503` `queue_full`.                                                                             |
 | `MAX_PAYLOAD_BYTES`       | Max `POST /summarize` JSON body in bytes. Default `10485760` (10 MiB). Over the limit: HTTP **413** `payload_too_large`.                                          |
 | `TASK_TTL_SEC`            | Seconds after `success`/`error` before the SQLite row is deleted. `0` = no TTL (delete only via `DELETE`).                                                       |
@@ -102,9 +103,32 @@ Replace `$TOKEN` and `$HOST` in the examples (`http://127.0.0.1:8000`).
 
 ```bash
 curl -s "$HOST/health"
+curl -s "$HOST/health" | jq '{version, model, llm, workers}'
 ```
 
-JSON includes `version` (same as `version.txt`) and `llm`: `ready` | `unconfigured` | `unavailable`. No secrets. `unconfigured` means empty `BASE_URL`, `API_KEY`, or `MODEL`. HTTP **200** while the process is up (liveness), even if the provider is down. `ready` means `GET {BASE_URL}/models` returned 2xx; 401/403/429/5xx and network errors are `unavailable`. Probe results are cached for `LLM_PROBE_TTL_SEC`.
+JSON includes `version` (same as `version.txt`), `model` (from `MODEL` in `.env`), `llm`: `ready` | `unconfigured` | `unavailable`, and `workers`:
+
+```json
+{
+  "status": "ok",
+  "version": "0.1.1",
+  "model": "gpt-4o-mini",
+  "llm": "ready",
+  "workers": {
+    "max": 2,
+    "active": 0,
+    "available": 2
+  }
+}
+```
+
+| Field | Meaning |
+| ----- | ------- |
+| `workers.max` | Parallel summarize slots on this process (`WORKERS` / `WORKERS_MAX`). |
+| `workers.active` | Tasks currently holding a slot (`running`). |
+| `workers.available` | Free slots: `max - active`. |
+
+[idigest-hub](https://github.com/dude75/idigest-hub) reads `workers.*` for summarize node Capacity (instead of a legacy 1/1 fallback). No secrets in the response. `unconfigured` means empty `BASE_URL`, `API_KEY`, or `MODEL`. HTTP **200** while the process is up (liveness), even if the provider is down. `ready` means `GET {BASE_URL}/models` returned 2xx; 401/403/429/5xx and network errors are `unavailable`. Probe results are cached for `LLM_PROBE_TTL_SEC`.
 
 ### Ready (no token)
 
@@ -112,7 +136,7 @@ JSON includes `version` (same as `version.txt`) and `llm`: `ready` | `unconfigur
 curl -s "$HOST/ready"
 ```
 
-Same JSON as `/health`. HTTP **200** only when `llm` is `ready`; otherwise **503**. Point the load balancer / k8s readiness probe here.
+Same JSON as `/health` (including `model` and `workers`). HTTP **200** only when `llm` is `ready`; otherwise **503**. Point the load balancer / k8s readiness probe here. [idigest-hub](https://github.com/dude75/idigest-hub) uses `/ready` for summarize dispatch; `workers` is informational for Capacity UI only.
 
 ### Metrics
 
