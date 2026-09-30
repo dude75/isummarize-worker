@@ -8,7 +8,7 @@ HTTP worker that **summarizes transcripts** with a SKILL (rules) via an OpenAI-c
 
 - Input: JSON `{ "text": "<transcript>", "skill": "<summarization rules>" }`.
 - Output: a **string** `summary` as returned by the model (plain text or JSON-as-text). The client does not pick the model; `MODEL`, `BASE_URL`, and `API_KEY` live in `.env`.
-- Long transcripts are split and summarized with map-reduce **inside one task**. That does not consume extra `WORKERS` slots.
+- Long `text` is map-reduced **inside one task** (no extra `WORKERS` slots): if the string is a **valid JSON object** with an array field (e.g. `transcript`), chunks are packed by array elements as valid JSON; otherwise the payload is split as plain text by paragraphs/lines.
 - One Python process: `WORKERS` in `.env` is how many summarization tasks may run at once (not uvicorn `--workers`).
 
 `POST /summarize` returns **202** with a `task_id`. Fetch the result from `/tasks`.
@@ -90,6 +90,10 @@ After a process restart (or `docker compose restart`) unfinished work is restore
 - A task that was `running` is set back to `queued` and run from scratch if its payload files still exist, at most `TASK_MAX_RESTARTS` times (default `1`). Another process death after that finishes as `error` with `process_killed`. If the files are gone, it finishes as `error` with `interrupted`.
 - A `queued` task whose payload files are missing finishes as `error` with `missing_payload` and is not enqueued.
 - Graceful shutdown does **not** delete tmp for queued or running tasks. Finished (`success` / `error`) tmp is still cleaned.
+
+## Docs and examples
+
+Reference SKILL for transcript summarization (JSON in `text`, markdown in `summary`): [docs/examples/transcript-summarization-worker.md](docs/examples/transcript-summarization-worker.md). Index: [docs/README.md](docs/README.md).
 
 ## API
 

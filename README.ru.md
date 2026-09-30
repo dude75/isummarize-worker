@@ -8,7 +8,7 @@ HTTP-воркер **саммаризации транскриптов** по п�
 
 - На вход: JSON `{ "text": "<транскрипт>", "skill": "<правила саммаризации>" }`.
 - На выход: строка `summary` как вернула модель (текст или JSON-как-текст). Модель клиент не выбирает: `MODEL`, `BASE_URL` и `API_KEY` живут в `.env`.
-- Длинный транскрипт режется и саммарится map-reduce **внутри одной задачи**. Это не занимает лишние слоты `WORKERS`.
+- Длинный `text` режется map-reduce **внутри одной задачи** (не занимает лишние слоты `WORKERS`): если строка — **валидный JSON-объект** с массивом (напр. `transcript`), нарезка по элементам массива с сохранением валидного JSON в каждом чанке; иначе — по абзацам/строкам как plain text.
 - Один процесс Python: `WORKERS` в `.env` — сколько задач саммаризации могут идти одновременно (не uvicorn `--workers`).
 
 `POST /summarize` отвечает **202** и `task_id`. Результат забирается через `/tasks`.
@@ -90,6 +90,10 @@ Docker: [Docker Compose](#docker-compose).
 - Задача, которая была `running`, сбрасывается в `queued` и гоняется с начала, если payload на диске есть, не больше `TASK_MAX_RESTARTS` раз (по умолчанию `1`). Иначе `error` `process_killed`. Если файлов нет — `error` `interrupted`.
 - `queued` без файлов — `error` `missing_payload`, в очередь не ставится.
 - Graceful shutdown **не** удаляет tmp у queued/running. У `success` / `error` tmp чистится.
+
+## Документация и примеры
+
+Опорный SKILL для суммаризации транскриптов (JSON в `text`, markdown в ответе): [docs/examples/transcript-summarization-worker.md](docs/examples/transcript-summarization-worker.md). Обзор: [docs/README.md](docs/README.md).
 
 ## API
 

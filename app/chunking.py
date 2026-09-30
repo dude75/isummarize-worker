@@ -1,25 +1,27 @@
-"""Нарезка длинного транскрипта и сборка prompt (map-reduce)."""
+"""Нарезка длинного ввода и сборка prompt (map-reduce)."""
 
 from __future__ import annotations
+
+import json
 
 MAX_PROMPT_CHARS = 100_000
 CHUNK_OVERLAP_CHARS = 400
 
 USER_SINGLE = (
-    "Ниже транскрипт. Следуй правилам из system. "
-    "Верни только результат саммари, без преамбулы.\n\n"
+    "Ниже входные данные. Следуй правилам из system. "
+    "Верни только результат, без преамбулы.\n\n"
     "<transcript>\n{text}\n</transcript>"
 )
 
 USER_CHUNK = (
-    "Ниже часть {index} из {total} транскрипта. Следуй правилам из system. "
-    "Верни только результат саммари этой части, без преамбулы.\n\n"
+    "Ниже часть {index} из {total} входных данных. Следуй правилам из system. "
+    "Верни только результат для этой части, без преамбулы.\n\n"
     "<transcript>\n{text}\n</transcript>"
 )
 
 USER_REDUCE = (
-    "Ниже промежуточные саммари частей транскрипта. Следуй правилам из system. "
-    "Верни только итоговый результат саммари, без преамбулы.\n\n"
+    "Ниже промежуточные результаты по частям входных данных. Следуй правилам из system. "
+    "Верни один итоговый результат, без преамбулы и без повторения списка частей.\n\n"
     "{summaries}"
 )
 
@@ -118,6 +120,69 @@ def split_text(text: str, max_chars: int) -> list[str]:
     return _with_overlap(packed, overlap)
 
 
+def _json_dumps(payload: object) -> str:
+    return json.dumps(payload, ensure_ascii=False, separators=(",", ":"))
+
+
+def _json_array_key(data: dict[str, object]) -> str | None:
+    transcript = data.get("transcript")
+    if isinstance(transcript, list):
+        return "transcript"
+    best_key: str | None = None
+    best_len = 0
+    for key, value in data.items():
+        if isinstance(value, list) and len(value) > best_len:
+            best_key = key
+            best_len = len(value)
+    return best_key
+
+
+def _json_chunk_text(data: dict[str, object], array_key: str, items: list[object]) -> str:
+    chunk_obj = {key: value for key, value in data.items() if key != array_key}
+    chunk_obj[array_key] = items
+    return _json_dumps(chunk_obj)
+
+
+def split_json_text(text: str, max_chars: int) -> list[str] | None:
+    """Режет JSON-объект по элементам list-поля. None — fallback на split_text."""
+    if max_chars <= 0:
+        return None
+    try:
+        parsed = json.loads(text)
+    except json.JSONDecodeError:
+        return None
+    if not isinstance(parsed, dict):
+        return None
+    array_key = _json_array_key(parsed)
+    if array_key is None:
+        return None
+    items = parsed[array_key]
+    if not isinstance(items, list) or not items:
+        return None
+
+    chunks: list[str] = []
+    buf: list[object] = []
+    for item in items:
+        trial = buf + [item]
+        serialized = _json_chunk_text(parsed, array_key, trial)
+        if len(serialized) <= max_chars:
+            buf = trial
+            continue
+        if buf:
+            chunks.append(_json_chunk_text(parsed, array_key, buf))
+            buf = [item]
+            serialized_one = _json_chunk_text(parsed, array_key, buf)
+            if len(serialized_one) > max_chars:
+                return None
+        else:
+            return None
+    if buf:
+        chunks.append(_json_chunk_text(parsed, array_key, buf))
+    if not chunks:
+        return None
+    return chunks
+
+
 def max_text_chars(system: str, template: str, **sample: object) -> int:
     sample_kwargs = dict(sample)
     sample_kwargs.setdefault("text", "")
@@ -132,7 +197,8 @@ def plan_chunks(system: str, text: str) -> list[str] | None:
     budget = max_text_chars(system, USER_CHUNK, index=9999, total=9999, text="")
     if budget <= 0:
         return []
-    chunks = split_text(text, budget)
+    json_chunks = split_json_text(text, budget)
+    chunks = json_chunks if json_chunks is not None else split_text(text, budget)
     if not chunks:
         return []
     for index, chunk in enumerate(chunks, start=1):
